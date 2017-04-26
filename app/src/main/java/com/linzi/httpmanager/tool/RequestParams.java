@@ -3,8 +3,10 @@ package com.linzi.httpmanager.tool;
 import android.os.Environment;
 import android.util.Log;
 
+import java.io.File;
 import java.net.URLEncoder;
 import java.util.HashMap;
+import java.util.UUID;
 
 /**
  * Created by linzi on 2017/4/21.
@@ -14,13 +16,38 @@ public class RequestParams {
     private String mUrl;//接口地址
     private StringBuilder tempParams = new StringBuilder();//请求参数
     private HashMap<String, String> paramsMap=new HashMap<>();//请求参数的键值
+    private HashMap<String, File>file_map;
     private int timeout=100000;//访问超时的时间，默认10s
     private boolean mUseCache=false;//是否使用缓存策略，默认不使用
     private String file_path= Environment.getExternalStorageDirectory().getPath()+"/DownLoad/";
     private String file_name;
+    private static final String PREFIX = "--";
+    private static final String LINE_END = "\r\n";
+    private static final String CHARSET = "utf-8"; //设置编码
+
 
     public RequestParams(String url){
         this.mUrl=url;
+    }
+
+    /**
+     * 添加请求参数
+     * @param key 参数关键字
+     * @param file 参数值
+     */
+    public void addUpLoadFile(String key,File file){
+        if(file_map==null){
+            file_map=new HashMap<>();
+        }
+        file_map.put(key,file);
+    }
+
+    public HashMap<String, File> getUpLoadMap(){
+        if(file_map==null){
+            return null;
+        }else{
+            return file_map;
+        }
     }
 
     /**
@@ -55,6 +82,7 @@ public class RequestParams {
      * @throws Exception
      */
     public String getUpLoadParams()throws Exception{
+        String BOUNDARY = UUID.randomUUID().toString();
         int pos = 0;
         int size=paramsMap.size();
         for (String key : paramsMap.keySet()) {
@@ -68,6 +96,18 @@ public class RequestParams {
         tempParams.append("\r\n");
         tempParams.append("Content-Type: application/octet-stream\r\n");
         tempParams.append("\r\n");
+        if(file_map!=null){
+            tempParams.append(PREFIX);//开始拼接文件参数
+            tempParams.append(BOUNDARY);
+            tempParams.append(LINE_END);
+
+            for(String key:file_map.keySet()){
+                tempParams.append("Content-Disposition: form-data; name=\""+key+"\"; filename=\""+file_map.get(key).getName()+"\""+LINE_END);
+                tempParams.append("Content-Type: application/octet-stream; charset="+CHARSET+LINE_END);
+                tempParams.append(LINE_END);
+            }
+
+        }
         return tempParams.toString();
     }
 

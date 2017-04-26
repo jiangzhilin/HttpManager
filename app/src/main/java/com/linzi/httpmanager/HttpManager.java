@@ -328,8 +328,6 @@ public class HttpManager {
             urlConn.addRequestProperty("Connection", "Keep-Alive");
             // 开始连接
             urlConn.connect();
-            //获取需要上传的文件路径，并实例化
-            File file = new File(params.getFilePath());
             //设置文件类型
             urlConn.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + "*****");
             //设置维持长连接
@@ -338,37 +336,41 @@ public class HttpManager {
             urlConn.setRequestProperty("Accept-Charset", "UTF-8");
             //设置文件类型
             urlConn.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + "*****");
-//            String name = file.getName();
             DataOutputStream requestStream = new DataOutputStream(urlConn.getOutputStream());
             requestStream.writeBytes("--" + "*****" + "\r\n");
             requestStream.writeBytes(params.getUpLoadParams());
-            //发送文件数据
-            FileInputStream fileInput = new FileInputStream(file);
+
             int bytesRead;
             byte[] buffer = new byte[1024];
 
             long totalReaded =0;
-            int file_length=fileInput.available();
+            int file_length=0;
             Message msg=new Message();
             msg.what=2;
             msg.arg1=what;
             handler.sendMessage(msg);
-
-            DataInputStream in = new DataInputStream(new FileInputStream(file));
-            while ((bytesRead = in.read(buffer)) != -1) {
-                totalReaded+=bytesRead;
-                long progress = totalReaded * 100 / file_length;
-                msg.what = 3;
-                msg.obj = progress;
-                msg.arg1 = what;
-                handler.sendMessage(msg);
-                requestStream.write(buffer, 0, bytesRead);
+            if(params.getUpLoadMap()!=null) {
+                for (String key : params.getUpLoadMap().keySet()) {
+                    FileInputStream fileInput=new FileInputStream(params.getUpLoadMap().get(key));
+                    DataInputStream in = new DataInputStream(fileInput);
+                    file_length=fileInput.available();
+                    while ((bytesRead = in.read(buffer)) != -1) {
+                        totalReaded += bytesRead;
+                        long progress = totalReaded * 100 / file_length;
+                        msg.what = 3;
+                        msg.obj = progress;
+                        msg.arg1 = what;
+                        handler.sendMessage(msg);
+                        requestStream.write(buffer, 0, bytesRead);
+                    }
+                    fileInput.close();
+                }
             }
             requestStream.writeBytes("\r\n");
             requestStream.flush();
             requestStream.writeBytes("--" + "*****" + "--" + "\r\n");
             requestStream.flush();
-            fileInput.close();
+
             int statusCode = urlConn.getResponseCode();
             if (statusCode == 200) {
                 // 获取返回的数据
