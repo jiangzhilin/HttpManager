@@ -10,6 +10,7 @@ import android.util.Log;
 import android.widget.Toast;
 
 import com.linzi.httpmanager.tool.CallBack;
+import com.linzi.httpmanager.tool.LoadDialog;
 import com.linzi.httpmanager.tool.RequestParams;
 
 import java.io.ByteArrayOutputStream;
@@ -33,6 +34,7 @@ public class HttpManager {
     private static CallBack.LoadCallBackListener mListener;//请求结果回调
     private static CallBack.DownLoadListener mDownListener;//下载和上传结果回调
     private static ExecutorService cachedThreadPool = Executors.newCachedThreadPool();//线程池
+    private String[] Context_type={"application/x-www-form-urlencoded","application/json"};
     private static Handler handler=new Handler(){
         @Override
         public void handleMessage(Message msg) {
@@ -65,6 +67,7 @@ public class HttpManager {
      */
     public static void init(Context context){
         mContext=context;
+        LoadDialog.init(context);
     }
 
     public static void doGet(final int what, final RequestParams params, final CallBack.LoadCallBackListener listener){
@@ -320,7 +323,7 @@ public class HttpManager {
             urlConn.setRequestMethod("POST");
             //urlConn设置请求头信息
             //设置请求中的媒体类型信息。
-            urlConn.setRequestProperty("Content-Type", "application/json");
+            urlConn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
             //设置客户端与服务连接类型
             urlConn.addRequestProperty("Connection", "Keep-Alive");
             // 开始连接
@@ -335,7 +338,7 @@ public class HttpManager {
             urlConn.setRequestProperty("Accept-Charset", "UTF-8");
             //设置文件类型
             urlConn.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + "*****");
-            String name = file.getName();
+//            String name = file.getName();
             DataOutputStream requestStream = new DataOutputStream(urlConn.getOutputStream());
             requestStream.writeBytes("--" + "*****" + "\r\n");
             requestStream.writeBytes(params.getUpLoadParams());
