@@ -12,6 +12,16 @@ import android.widget.Toast;
 import com.linzi.httpmanager.tool.CallBack;
 import com.linzi.httpmanager.tool.LoadDialog;
 import com.linzi.httpmanager.tool.RequestParams;
+import com.squareup.okhttp.Call;
+import com.squareup.okhttp.Callback;
+import com.squareup.okhttp.FormEncodingBuilder;
+import com.squareup.okhttp.Headers;
+import com.squareup.okhttp.MediaType;
+import com.squareup.okhttp.MultipartBuilder;
+import com.squareup.okhttp.OkHttpClient;
+import com.squareup.okhttp.Request;
+import com.squareup.okhttp.RequestBody;
+import com.squareup.okhttp.Response;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -19,11 +29,17 @@ import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+
+import okio.Buffer;
+import okio.BufferedSink;
+import okio.Okio;
+import okio.Source;
 
 /**
  * Created by linzi on 2017/4/21.
@@ -35,6 +51,9 @@ public class HttpManager {
     private static CallBack.DownLoadListener mDownListener;//下载和上传结果回调
     private static ExecutorService cachedThreadPool = Executors.newCachedThreadPool();//线程池
     private String[] Context_type={"application/x-www-form-urlencoded","application/json"};
+    private static boolean isUseOkHttp=false;
+    private static OkHttpClient mOkHttpClient;
+    private static Request request;
     private static Handler handler=new Handler(){
         @Override
         public void handleMessage(Message msg) {
@@ -69,38 +88,190 @@ public class HttpManager {
         mContext=context;
         LoadDialog.init(context);
     }
+    public static void init(Context context,Boolean isUse){
+        mContext=context;
+        isUseOkHttp=isUse;
+        LoadDialog.init(context);
+    }
+    public boolean Config(){
+        mOkHttpClient=new OkHttpClient();
+        return true;
+    }
 
     public static void doGet(final int what, final RequestParams params, final CallBack.LoadCallBackListener listener){
-        cachedThreadPool.execute(new Runnable() {
-            @Override
-            public void run() {
-                doGetForJson(what,params,listener);
+        if(isUseOkHttp) {
+            cachedThreadPool.execute(new Runnable() {
+                @Override
+                public void run() {
+                    doGetForJson(what, params, listener);
+                }
+            });
+        }else{
+            try {
+                request=new Request.Builder()
+                        .url(params.getBaseUrl()+"?"+params.getParams())
+                        .build();
+
+                Call call=mOkHttpClient.newCall(request);
+                call.enqueue(new Callback() {
+                    @Override
+                    public void onFailure(Request request, IOException e) {
+                        Message msg=new Message();
+                        msg.what=1;
+                        msg.arg1=what;
+                        handler.sendMessage(msg);
+                    }
+                    @Override
+                    public void onResponse(Response response) throws IOException {
+                        Message msg=new Message();
+                        msg.what=0;
+                        msg.arg1=what;
+                        msg.obj=response.body().toString();
+                        handler.sendMessage(msg);
+                    }
+                });
+
+            } catch (Exception e) {
+                e.printStackTrace();
             }
-        });
+        }
     }
     public static void doPost(final int what, final RequestParams params, final CallBack.LoadCallBackListener listener){
-        cachedThreadPool.execute(new Runnable() {
-            @Override
-            public void run() {
-                doPostForJson(what,params,listener);
+        if(isUseOkHttp) {
+            cachedThreadPool.execute(new Runnable() {
+                @Override
+                public void run() {
+                    doPostForJson(what,params,listener);
+                }
+            });
+        }else{
+            FormEncodingBuilder builder = new FormEncodingBuilder();
+            for(String key:params.getParamsMaps().keySet()){
+                builder.add(key,params.getParamsMaps().get(key));
             }
-        });
+            request = new Request.Builder()
+                    .url(params.getBaseUrl())
+                    .post(builder.build())
+                    .build();
+            mOkHttpClient.newCall(request).enqueue(new Callback() {
+                @Override
+                public void onFailure(Request request, IOException e) {
+                    Message msg=new Message();
+                    msg.what=1;
+                    msg.arg1=what;
+                    handler.sendMessage(msg);
+                }
+                @Override
+                public void onResponse(Response response) throws IOException {
+                    Message msg=new Message();
+                    msg.what=0;
+                    msg.arg1=what;
+                    msg.obj=response.body().toString();
+                    handler.sendMessage(msg);
+                }
+            });
+        }
     }
     public static void doLoad(final int what, final RequestParams params, final CallBack.DownLoadListener listener){
-        cachedThreadPool.execute(new Runnable() {
-            @Override
-            public void run() {
-                doDownLoad(what,params,listener);
-            }
-        });
+        if(isUseOkHttp) {
+            cachedThreadPool.execute(new Runnable() {
+                @Override
+                public void run() {
+                    doDownLoad(what,params,listener);
+                }
+            });
+        }else{
+            request=new Request.Builder()
+                    .url(params.getBaseUrl())
+                    .build();
+            mOkHttpClient.newCall(request).enqueue(new Callback() {
+                @Override
+                public void onFailure(Request request, IOException e) {
+                    Message msg=new Message();
+                    msg.what=4;
+                    msg.arg1=what;
+                    handler.sendMessage(msg);
+                }
+                @Override
+                public void onResponse(Response response) throws IOException {
+                    long contentLength = response.body().contentLength();
+                    String filePath=params.getFilePath()+params.getFileName();
+                    File descFile = new File(filePath);
+                    FileOutputStream fos = new FileOutputStream(descFile);
+                    byte[] buffer = new byte[1024];
+                    int len;
+                    long totalReaded =0;
+                    Message msg=new Message();
+                    msg.what=2;
+                    msg.arg1=what;
+                    handler.sendMessage(msg);
+                    InputStream inputStream = response.body().byteStream();
+                    while ((len = inputStream.read(buffer)) != -1) {
+                        // 写到本地
+                        totalReaded+=len;
+                        long progress = totalReaded * 100 / contentLength;
+                        msg.what = 3;
+                        msg.obj = progress;
+                        msg.arg1 = what;
+                        handler.sendMessage(msg);
+                        if(progress==100){
+                            msg.what = 5;
+                            msg.obj = "下载成功";
+                            msg.arg1 = what;
+                            handler.sendMessage(msg);
+                        }
+                        fos.write(buffer, 0, len);
+                    }
+                }
+            });
+        }
     }
     public static void upLoad(final int what, final RequestParams params, final CallBack.DownLoadListener listener){
-        cachedThreadPool.execute(new Runnable() {
-            @Override
-            public void run() {
-                doUpload(what,params,listener);
+        if(isUseOkHttp) {
+            cachedThreadPool.execute(new Runnable() {
+                @Override
+                public void run() {
+                    doUpload(what,params,listener);
+                }
+            });
+        }else{
+//            RequestBody fileBody = RequestBody.create(MediaType.parse("application/octet-stream"), file);
+            MultipartBuilder builder = new MultipartBuilder().type(MultipartBuilder.FORM);
+            for(String key:params.getParamsMaps().keySet()){
+                builder.addFormDataPart(key,params.getParamsMaps().get(key));
             }
-        });
+            for(String key:params.getUpLoadMap().keySet()){
+                builder.addFormDataPart(key,params.getUpLoadMap().get(key).getName()
+                        ,createProgressRequestBody(MediaType.parse("application/octet-stream"), params.getUpLoadMap().get(key),what,listener));
+            }
+            request = new Request.Builder()
+                    .url(params.getBaseUrl())
+                    .post(builder.build())
+                    .build();
+            mOkHttpClient.newCall(request).enqueue(new Callback() {
+                @Override
+                public void onFailure(Request request, IOException e) {
+                    Message msg=new Message();
+                    msg.what=4;
+                    msg.arg1=what;
+                    handler.sendMessage(msg);
+                }
+                @Override
+                public void onResponse(Response response) throws IOException {
+                    Message msg=new Message();
+                    if(response.isSuccessful()){
+                        msg.what = 5;
+                        msg.obj = response.body().toString();
+                        msg.arg1 = what;
+                        handler.sendMessage(msg);
+                    }else{
+                        msg.what=4;
+                        msg.arg1=what;
+                        handler.sendMessage(msg);
+                    }
+                }
+            });
+        }
     }
     /**
      * get请求方式
@@ -259,7 +430,7 @@ public class HttpManager {
             if (urlConn.getResponseCode() == 200) {
                 String filePath=params.getFilePath()+params.getFileName();
                 File descFile = new File(filePath);
-                FileOutputStream fos = new FileOutputStream(descFile);;
+                FileOutputStream fos = new FileOutputStream(descFile);
                 byte[] buffer = new byte[1024];
                 int len;
                 long totalReaded =0;
@@ -435,7 +606,7 @@ public class HttpManager {
      * @param msg
      */
     public static void log(String keys,String msg){
-        Log.d(keys, keys+"--------->"+msg);
+        Log.d("HttpManager", keys+"--------->"+msg);
     }
 
     /**
@@ -473,6 +644,55 @@ public class HttpManager {
             }
         }
         return false;
+    }
+
+    /**
+     * 创建带进度的RequestBody
+     * @param contentType MediaType
+     * @param file  准备上传的文件
+     * @param listener 回调
+     * @param <T>
+     * @return
+     */
+    public static <T> RequestBody createProgressRequestBody(final MediaType contentType, final File file, final int what, CallBack.DownLoadListener listener) {
+        final Message msg=new Message();
+        msg.what=2;
+        msg.arg1=what;
+        handler.sendMessage(msg);
+        return new RequestBody() {
+            @Override
+            public MediaType contentType() {
+                return contentType;
+            }
+
+            @Override
+            public long contentLength() {
+                return file.length();
+            }
+
+            @Override
+            public void writeTo(BufferedSink sink) throws IOException {
+                Source source;
+                try {
+                    source = Okio.source(file);
+                    Buffer buf = new Buffer();
+                    long remaining = contentLength();
+                    long current = 0;
+                    for (long readCount; (readCount = source.read(buf, 2048)) != -1; ) {
+                        sink.write(buf, readCount);
+                        current += readCount;
+//                        progressCallBack(remaining, current, callBack);
+                        long progress = current * 100 / remaining;
+                        msg.what = 3;
+                        msg.obj = progress;
+                        msg.arg1 = what;
+                        handler.sendMessage(msg);
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        };
     }
 
 }

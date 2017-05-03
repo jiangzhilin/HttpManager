@@ -60,6 +60,13 @@ public class RequestParams {
     }
 
     /**
+     * 获取添加的请求参数
+     * @return
+     */
+    public HashMap<String, String>getParamsMaps(){
+        return paramsMap;
+    }
+    /**
      * 获取请求参数
      * @return
      * @throws Exception
