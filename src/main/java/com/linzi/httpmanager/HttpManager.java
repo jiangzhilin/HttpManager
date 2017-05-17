@@ -114,7 +114,8 @@ public class HttpManager {
                         .url(params.getBaseUrl()+"?"+params.getParams())
                         .build();
 
-                Call call=mOkHttpClient.newCall(request);
+                mOkHttpClient.setConnectTimeout(params.getTimeOut(), TimeUnit.MILLISECONDS);
+                final Call call=mOkHttpClient.newCall(request);
                 call.enqueue(new Callback() {
                     @Override
                     public void onFailure(Request request, IOException e) {
