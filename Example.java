@@ -20,10 +20,14 @@ public class Example extends Activity{
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         HttpManager.init(this);//初始化工具
+        //初始化，使用Okhttp工具
+//        HttpManager.init(this,new HttpManager().Config());
 //        LoadDialog.init(this);//LoadDialog默认随着HttpManager的初始化而初始化，该语句可屏蔽
         LoadDialog.init(this,100,android.R.color.white,new TextView(this));//初始化个性化的loaddialog,参数以此为：上下文、大小、背景色、自定义加载的view
     }
     private void initViews(){
+        LoadDialog.showDialog();//显示加载dialog
+//        LoadDialog.showDialog("加载中");//带自定义信息的加载dialog
         //初始化参数类
         RequestParams params=new RequestParams("www.baidu.com");
         params.addRequestBody("keys","value");//添加请求参数
@@ -32,6 +36,7 @@ public class Example extends Activity{
             @Override
             public void onFinishResult(int what, String result) {
                 //访问成功
+                LoadDialog.CancelDialog();//关闭提示框
             }
             @Override
             public void onErrResult(int what, Exception e) {

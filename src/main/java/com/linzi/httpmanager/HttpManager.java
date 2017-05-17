@@ -35,6 +35,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import okio.Buffer;
 import okio.BufferedSink;
@@ -99,7 +100,7 @@ public class HttpManager {
     }
 
     public static void doGet(final int what, final RequestParams params, final CallBack.LoadCallBackListener listener){
-        if(isUseOkHttp) {
+        if(!isUseOkHttp) {
             cachedThreadPool.execute(new Runnable() {
                 @Override
                 public void run() {
@@ -108,6 +109,7 @@ public class HttpManager {
             });
         }else{
             try {
+                mListener=listener;
                 request=new Request.Builder()
                         .url(params.getBaseUrl()+"?"+params.getParams())
                         .build();
@@ -120,14 +122,16 @@ public class HttpManager {
                         msg.what=1;
                         msg.arg1=what;
                         handler.sendMessage(msg);
+                        call.cancel();
                     }
                     @Override
                     public void onResponse(Response response) throws IOException {
                         Message msg=new Message();
                         msg.what=0;
                         msg.arg1=what;
-                        msg.obj=response.body().toString();
+                        msg.obj=response.body().string();
                         handler.sendMessage(msg);
+                        call.cancel();
                     }
                 });
 
@@ -137,7 +141,7 @@ public class HttpManager {
         }
     }
     public static void doPost(final int what, final RequestParams params, final CallBack.LoadCallBackListener listener){
-        if(isUseOkHttp) {
+        if(!isUseOkHttp) {
             cachedThreadPool.execute(new Runnable() {
                 @Override
                 public void run() {
@@ -145,6 +149,7 @@ public class HttpManager {
                 }
             });
         }else{
+            mListener=listener;
             FormEncodingBuilder builder = new FormEncodingBuilder();
             for(String key:params.getParamsMaps().keySet()){
                 builder.add(key,params.getParamsMaps().get(key));
@@ -153,27 +158,31 @@ public class HttpManager {
                     .url(params.getBaseUrl())
                     .post(builder.build())
                     .build();
-            mOkHttpClient.newCall(request).enqueue(new Callback() {
+            final Call call=mOkHttpClient.newCall(request);
+
+            call.enqueue(new Callback() {
                 @Override
                 public void onFailure(Request request, IOException e) {
                     Message msg=new Message();
                     msg.what=1;
                     msg.arg1=what;
                     handler.sendMessage(msg);
+                    call.cancel();
                 }
                 @Override
                 public void onResponse(Response response) throws IOException {
                     Message msg=new Message();
                     msg.what=0;
                     msg.arg1=what;
-                    msg.obj=response.body().toString();
+                    msg.obj=response.body().string();
                     handler.sendMessage(msg);
+                    call.cancel();
                 }
             });
         }
     }
     public static void doLoad(final int what, final RequestParams params, final CallBack.DownLoadListener listener){
-        if(isUseOkHttp) {
+        if(!isUseOkHttp) {
             cachedThreadPool.execute(new Runnable() {
                 @Override
                 public void run() {
@@ -181,16 +190,19 @@ public class HttpManager {
                 }
             });
         }else{
+            mDownListener=listener;
             request=new Request.Builder()
                     .url(params.getBaseUrl())
                     .build();
-            mOkHttpClient.newCall(request).enqueue(new Callback() {
+            final Call call=mOkHttpClient.newCall(request);
+            call.enqueue(new Callback() {
                 @Override
                 public void onFailure(Request request, IOException e) {
                     Message msg=new Message();
                     msg.what=4;
                     msg.arg1=what;
                     handler.sendMessage(msg);
+                    call.cancel();
                 }
                 @Override
                 public void onResponse(Response response) throws IOException {
@@ -216,18 +228,19 @@ public class HttpManager {
                         handler.sendMessage(msg);
                         if(progress==100){
                             msg.what = 5;
-                            msg.obj = "下载成功";
+                            msg.obj = "{\"msg\":\"下载成功\",\"path\":\""+filePath+"\"}";
                             msg.arg1 = what;
                             handler.sendMessage(msg);
                         }
                         fos.write(buffer, 0, len);
                     }
+                    call.cancel();
                 }
             });
         }
     }
     public static void upLoad(final int what, final RequestParams params, final CallBack.DownLoadListener listener){
-        if(isUseOkHttp) {
+        if(!isUseOkHttp) {
             cachedThreadPool.execute(new Runnable() {
                 @Override
                 public void run() {
@@ -235,6 +248,7 @@ public class HttpManager {
                 }
             });
         }else{
+            mDownListener=listener;
 //            RequestBody fileBody = RequestBody.create(MediaType.parse("application/octet-stream"), file);
             MultipartBuilder builder = new MultipartBuilder().type(MultipartBuilder.FORM);
             for(String key:params.getParamsMaps().keySet()){
@@ -248,20 +262,22 @@ public class HttpManager {
                     .url(params.getBaseUrl())
                     .post(builder.build())
                     .build();
-            mOkHttpClient.newCall(request).enqueue(new Callback() {
+            final Call call=mOkHttpClient.newCall(request);
+            call.enqueue(new Callback() {
                 @Override
                 public void onFailure(Request request, IOException e) {
                     Message msg=new Message();
                     msg.what=4;
                     msg.arg1=what;
                     handler.sendMessage(msg);
+                    call.cancel();
                 }
                 @Override
                 public void onResponse(Response response) throws IOException {
                     Message msg=new Message();
                     if(response.isSuccessful()){
                         msg.what = 5;
-                        msg.obj = response.body().toString();
+                        msg.obj = response.body().string();
                         msg.arg1 = what;
                         handler.sendMessage(msg);
                     }else{
@@ -269,6 +285,7 @@ public class HttpManager {
                         msg.arg1=what;
                         handler.sendMessage(msg);
                     }
+                    call.cancel();
                 }
             });
         }
