@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
+import android.net.Uri;
 import android.os.Handler;
 import android.os.Message;
 import android.util.Log;
@@ -33,6 +34,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -55,16 +60,22 @@ public class HttpManager {
     private static boolean isUseOkHttp=false;
     private static OkHttpClient mOkHttpClient;
     private static Request request;
+    static List<CallBack.LoadCallBackListener>listener_list=new ArrayList<>();
+    static List<Call>call_list=new ArrayList<>();
+    static List<Integer>tag_list=new ArrayList<>();
+    static int tag=-1;
     private static Handler handler=new Handler(){
         @Override
         public void handleMessage(Message msg) {
             super.handleMessage(msg);
             switch (msg.what){
                 case 0:
-                    mListener.onFinishResult(msg.arg1,msg.obj.toString());
+                    listener_list.get(msg.arg2).onFinishResult(msg.arg1,msg.obj.toString());
+                    call_list.get(msg.arg2).cancel();
                     break;
                 case 1:
-                    mListener.onErrResult(msg.arg1,new Exception("请求失败"));
+                    listener_list.get(msg.arg2).onErrResult(msg.arg1,new Exception("请求失败"));
+                    call_list.get(msg.arg2).cancel();
                     break;
                 case 2:
                     mDownListener.onStart(msg.arg1);
@@ -92,11 +103,29 @@ public class HttpManager {
     public static void init(Context context,Boolean isUse){
         mContext=context;
         isUseOkHttp=isUse;
-        LoadDialog.init(context);
+
     }
     public boolean Config(){
         mOkHttpClient=new OkHttpClient();
         return true;
+    }
+
+    private static void isfull(){
+        if(tag_list.size()>20){
+            boolean isc=true;
+            for(int x=0;x<call_list.size();x++) {
+                if(call_list.get(x).isCanceled()){
+                    isc=true;
+                }else{
+                    isc=false;
+                }
+            }
+            if(isc) {
+                tag_list.clear();
+                listener_list.clear();
+                call_list.clear();
+            }
+        }
     }
 
     public static void doGet(final int what, final RequestParams params, final CallBack.LoadCallBackListener listener){
@@ -109,13 +138,23 @@ public class HttpManager {
             });
         }else{
             try {
-                mListener=listener;
-                request=new Request.Builder()
-                        .url(params.getBaseUrl()+"?"+params.getParams())
-                        .build();
-
+                //判断请求队列是否达到请求上限//上限20
+                isfull();
+                listener_list.add(listener);
+                tag++;
+                tag_list.add(tag);
+                if(!params.getParams().isEmpty()) {
+                    request = new Request.Builder()
+                            .url(params.getBaseUrl() + "?" + params.getParams())
+                            .build();
+                }else{
+                    request = new Request.Builder()
+                            .url(params.getBaseUrl())
+                            .build();
+                }
                 mOkHttpClient.setConnectTimeout(params.getTimeOut(), TimeUnit.MILLISECONDS);
                 final Call call=mOkHttpClient.newCall(request);
+                call_list.add(call);
                 call.enqueue(new Callback() {
                     @Override
                     public void onFailure(Request request, IOException e) {
@@ -150,34 +189,59 @@ public class HttpManager {
                 }
             });
         }else{
-            mListener=listener;
+            isfull();
+            listener_list.add(listener);
+            tag++;
+            tag_list.add(tag);
             FormEncodingBuilder builder = new FormEncodingBuilder();
-            for(String key:params.getParamsMaps().keySet()){
-                builder.add(key,params.getParamsMaps().get(key));
+            if(!params.getParamsMaps().isEmpty()) {
+                for (String key : params.getParamsMaps().keySet()) {
+                    builder.add(key, params.getParamsMaps().get(key));
+                }
+                request = new Request.Builder()
+                        .url(params.getBaseUrl())
+                        .post(builder.build())
+                        .addHeader("tag",""+tag)
+                        .build();
+            }else{
+                request = new Request.Builder()
+                        .url(params.getBaseUrl())
+                        .addHeader("tag",""+tag)
+                        .build();
             }
-            request = new Request.Builder()
-                    .url(params.getBaseUrl())
-                    .post(builder.build())
-                    .build();
             final Call call=mOkHttpClient.newCall(request);
-
+            call_list.add(call);
             call.enqueue(new Callback() {
                 @Override
                 public void onFailure(Request request, IOException e) {
-                    Message msg=new Message();
-                    msg.what=1;
-                    msg.arg1=what;
-                    handler.sendMessage(msg);
-                    call.cancel();
+                    Log.d("head", "onFailure: "+request.header("tag"));
+                    if(tag_list.size()>0){
+                        for(int x=0;x<tag_list.size();x++){
+                            if(tag_list.get(x).toString().equals(request.header("tag"))){
+                                Message msg=new Message();
+                                msg.what=1;
+                                msg.arg1=what;
+                                msg.arg2=x;
+                                handler.sendMessage(msg);
+                            }
+                        }
+                    }
                 }
                 @Override
                 public void onResponse(Response response) throws IOException {
-                    Message msg=new Message();
-                    msg.what=0;
-                    msg.arg1=what;
-                    msg.obj=response.body().string();
-                    handler.sendMessage(msg);
-                    call.cancel();
+                    Log.d("head", "onResponse: "+response.request().header("tag"));
+                    if(tag_list.size()>0){
+                        for(int x=0;x<tag_list.size();x++){
+                            if(tag_list.get(x).toString().equals(response.request().header("tag"))){
+                                Message msg=new Message();
+                                msg.what=0;
+                                msg.arg2=x;
+                                msg.arg1=what;
+                                msg.obj=response.body().string();
+                                handler.sendMessage(msg);
+                            }
+                        }
+                    }
                 }
             });
         }
@@ -241,6 +305,7 @@ public class HttpManager {
         }
     }
     public static void upLoad(final int what, final RequestParams params, final CallBack.DownLoadListener listener){
+        int flag=0;
         if(!isUseOkHttp) {
             cachedThreadPool.execute(new Runnable() {
                 @Override
@@ -252,17 +317,29 @@ public class HttpManager {
             mDownListener=listener;
 //            RequestBody fileBody = RequestBody.create(MediaType.parse("application/octet-stream"), file);
             MultipartBuilder builder = new MultipartBuilder().type(MultipartBuilder.FORM);
-            for(String key:params.getParamsMaps().keySet()){
-                builder.addFormDataPart(key,params.getParamsMaps().get(key));
+            if(!params.getParamsMaps().isEmpty()) {
+                for (String key : params.getParamsMaps().keySet()) {
+                    builder.addFormDataPart(key, params.getParamsMaps().get(key));
+                }
+            }else{flag++;}
+            if(params.getUpLoadMap()!=null) {
+                for (String key : params.getUpLoadMap().keySet()) {
+                    builder.addFormDataPart(key, params.getUpLoadMap().get(key).getName()
+                            , createProgressRequestBody(MediaType.parse("application/octet-stream"), params.getUpLoadMap().get(key), what, listener));
+                }
+            }else{
+                flag++;
             }
-            for(String key:params.getUpLoadMap().keySet()){
-                builder.addFormDataPart(key,params.getUpLoadMap().get(key).getName()
-                        ,createProgressRequestBody(MediaType.parse("application/octet-stream"), params.getUpLoadMap().get(key),what,listener));
+            if(flag!=2) {
+                request = new Request.Builder()
+                        .url(params.getBaseUrl())
+                        .post(builder.build())
+                        .build();
+            }else{
+                request = new Request.Builder()
+                        .url(params.getBaseUrl())
+                        .build();
             }
-            request = new Request.Builder()
-                    .url(params.getBaseUrl())
-                    .post(builder.build())
-                    .build();
             final Call call=mOkHttpClient.newCall(request);
             call.enqueue(new Callback() {
                 @Override
@@ -300,7 +377,12 @@ public class HttpManager {
     private static void doGetForJson(int what, RequestParams params, CallBack.LoadCallBackListener listener){
         mListener=listener;
         try {
-            String request_url=params.getBaseUrl()+"?"+params.getParams();
+            String request_url="";
+            if(!params.getParams().isEmpty()) {
+                request_url = params.getBaseUrl() + "?" + params.getParams();
+            }else{
+                request_url = params.getBaseUrl();
+            }
             // 新建一个URL对象
             URL url = new URL(request_url);
             // 打开一个HttpURLConnection连接
@@ -383,7 +465,9 @@ public class HttpManager {
             urlConn.connect();
             // 发送请求参数
             DataOutputStream dos = new DataOutputStream(urlConn.getOutputStream());
-            dos.write(postData);
+            if(!param.isEmpty()) {
+                dos.write(postData);
+            }
             dos.flush();
             dos.close();
             // 判断请求是否成功
@@ -619,6 +703,16 @@ public class HttpManager {
     }
 
     /**
+     * 调用拨号界面
+     * @param phone 电话号码
+     */
+    public static void call(String phone) {
+        Intent intent = new Intent(Intent.ACTION_DIAL, Uri.parse("tel:"+phone));
+        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        mContext.startActivity(intent);
+    }
+
+    /**
      * log日志输出
      * @param keys
      * @param msg
@@ -633,6 +727,18 @@ public class HttpManager {
      */
     public static void intent(Class<?>cla){
         Intent intent=new Intent(mContext,cla);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        mContext.startActivity(intent);
+    }
+
+    /**
+     * 简单的页面跳转和数据
+     * @param cla
+     */
+    public static void intent(Class<?>cla,String s){
+        Intent intent=new Intent(mContext,cla);
+        intent.putExtra("tag",s);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         mContext.startActivity(intent);
     }
 
@@ -701,16 +807,26 @@ public class HttpManager {
                         current += readCount;
 //                        progressCallBack(remaining, current, callBack);
                         long progress = current * 100 / remaining;
-                        msg.what = 3;
-                        msg.obj = progress;
-                        msg.arg1 = what;
-                        handler.sendMessage(msg);
+                        final Message msg2=new Message();
+                        msg2.what = 3;
+                        msg2.obj = progress;
+                        msg2.arg1 = what;
+                        handler.sendMessage(msg2);
                     }
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
             }
         };
+    }
+
+    private static List<String> removeDuplicate(List<String> list)
+    {
+        Set set = new LinkedHashSet<String>();
+        set.addAll(list);
+        list.clear();
+        list.addAll(set);
+        return list;
     }
 
 }

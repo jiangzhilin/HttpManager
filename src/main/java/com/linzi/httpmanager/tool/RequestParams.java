@@ -73,13 +73,17 @@ public class RequestParams {
      */
     public String getParams()throws Exception{
         int pos = 0;
-        for (String key : paramsMap.keySet()) {
-            if (pos > 0) {
-                tempParams.append("&");
+        if(!paramsMap.isEmpty()) {
+            for (String key : paramsMap.keySet()) {
+                if (pos > 0) {
+                    tempParams.append("&");
+                }
+                tempParams.append(String.format("%s=%s", key, URLEncoder.encode(paramsMap.get(key), "utf-8")));
+                Log.d("请求参数", key + ":" + paramsMap.get(key));
+                pos++;
             }
-            tempParams.append(String.format("%s=%s", key, URLEncoder.encode(paramsMap.get(key), "utf-8")));
-            Log.d("请求参数", key+":"+paramsMap.get(key));
-            pos++;
+        }else{
+            tempParams = new StringBuilder();
         }
         return tempParams.toString();
     }
